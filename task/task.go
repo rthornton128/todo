@@ -15,7 +15,7 @@ import (
 
 // Task has some kind of bs description
 type Task struct {
-	ID   int
+	ID   int64
 	Desc string
 	Done bool
 }
@@ -30,8 +30,7 @@ func NewTask(desc string) (*Task, error) {
 
 // Manager is an SQLite3 store.
 type Manager struct {
-	db     *sql.DB
-	nextID int
+	db *sql.DB
 }
 
 // NewManager takes the path to a new database store or ':memory:' may be used for
@@ -41,7 +40,7 @@ func NewManager(path string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS Tasks (ID INT PRIMARY KEY,Desc TEXT,Done INT);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS Tasks (ID INTEGER PRIMARY KEY,Desc TEXT,Done INT);")
 	if err != nil {
 		return nil, err
 	}
@@ -69,19 +68,25 @@ func (m *Manager) All() ([]*Task, error) {
 }
 
 // Query searches the database for a task and returns the result
-func (m *Manager) Query(id int) (*Task, error) {
+func (m *Manager) Query(id int64) (*Task, error) {
 	s := "SELECT ID,Desc,Done FROM Tasks WHERE ID=?;"
 	var t Task
 	return &t, m.db.QueryRow(s, id).Scan(&t.ID, &t.Desc, &t.Done)
 }
 
-// Store a task into database. Error may be an SQL error
-func (m *Manager) Store(t *Task) error {
-	if t.ID == 0 {
-		m.nextID++
-		t.ID = m.nextID
-	}
+// Store inserts a new task into or updates an existing one in the database.
+// Error will be a result of an SQL error
+func (m *Manager) Store(t *Task) (err error) {
 	s := "INSERT OR REPLACE INTO Tasks VALUES (?,?,?);"
-	_, err := m.db.Exec(s, t.ID, t.Desc, t.Done)
+	if t.ID == 0 {
+		var r sql.Result
+		r, err = m.db.Exec(s, nil, t.Desc, t.Done)
+		if err != nil {
+			return err
+		}
+		t.ID, err = r.LastInsertId()
+	} else {
+		_, err = m.db.Exec(s, t.ID, t.Desc, t.Done)
+	}
 	return err
 }
